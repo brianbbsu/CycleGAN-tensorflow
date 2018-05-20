@@ -5,10 +5,18 @@ from glob import glob
 import tensorflow as tf
 import numpy as np
 from collections import namedtuple
+import shutil
 
 from module import *
 from utils import *
 
+offset = 0.2
+
+def gen_ones(t):
+    return tf.random_uniform(tf.shape(t), minval= 1 - offset, maxval=1)
+
+def gen_zeros(t):
+    return tf.random_uniform(tf.shape(t), minval= 0, maxval=offset)
 
 class cyclegan(object):
     def __init__(self, sess, args):
@@ -56,13 +64,13 @@ class cyclegan(object):
 
         self.DB_fake = self.discriminator(self.fake_B, self.options, reuse=False, name="discriminatorB",update_collection=None)
         self.DA_fake = self.discriminator(self.fake_A, self.options, reuse=False, name="discriminatorA",update_collection=None)
-        self.g_loss_a2b = self.criterionGAN(self.DB_fake, tf.ones_like(self.DB_fake)) \
+        self.g_loss_a2b = self.criterionGAN(self.DB_fake, gen_ones(self.DB_fake)) \
             + self.L1_lambda * abs_criterion(self.real_A, self.fake_A_) \
             + self.L1_lambda * abs_criterion(self.real_B, self.fake_B_)
-        self.g_loss_b2a = self.criterionGAN(self.DA_fake, tf.ones_like(self.DA_fake)) \
+        self.g_loss_b2a = self.criterionGAN(self.DA_fake, gen_ones(self.DA_fake)) \
             + self.L1_lambda * abs_criterion(self.real_A, self.fake_A_) \
             + self.L1_lambda * abs_criterion(self.real_B, self.fake_B_)
-        self.g_loss = self.criterionGAN(self.DA_fake, tf.ones_like(self.DA_fake)) \
+        self.g_loss = self.criterionGAN(self.DA_fake, gen_ones(self.DA_fake)) \
             + self.criterionGAN(self.DB_fake, tf.ones_like(self.DB_fake)) \
             + self.L1_lambda * abs_criterion(self.real_A, self.fake_A_) \
             + self.L1_lambda * abs_criterion(self.real_B, self.fake_B_)
@@ -78,11 +86,11 @@ class cyclegan(object):
         self.DB_fake_sample = self.discriminator(self.fake_B_sample, self.options, reuse=True, name="discriminatorB",update_collection="NO_OPS")
         self.DA_fake_sample = self.discriminator(self.fake_A_sample, self.options, reuse=True, name="discriminatorA",update_collection="NO_OPS")
 
-        self.db_loss_real = self.criterionGAN(self.DB_real, tf.ones_like(self.DB_real))
-        self.db_loss_fake = self.criterionGAN(self.DB_fake_sample, tf.zeros_like(self.DB_fake_sample))
+        self.db_loss_real = self.criterionGAN(self.DB_real, gen_ones(self.DB_real))
+        self.db_loss_fake = self.criterionGAN(self.DB_fake_sample, gen_zeros(self.DB_fake_sample))
         self.db_loss = (self.db_loss_real + self.db_loss_fake) / 2
-        self.da_loss_real = self.criterionGAN(self.DA_real, tf.ones_like(self.DA_real))
-        self.da_loss_fake = self.criterionGAN(self.DA_fake_sample, tf.zeros_like(self.DA_fake_sample))
+        self.da_loss_real = self.criterionGAN(self.DA_real, gen_ones(self.DA_real))
+        self.da_loss_fake = self.criterionGAN(self.DA_fake_sample, gen_zeros(self.DA_fake_sample))
         self.da_loss = (self.da_loss_real + self.da_loss_fake) / 2
         self.d_loss = self.da_loss + self.db_loss
 
@@ -176,19 +184,26 @@ class cyclegan(object):
                     self.sample_model(args.sample_dir, epoch, idx)
 
                 if np.mod(counter, args.save_freq) == 2:
-                    self.save(args.checkpoint_dir, counter)
+                    self.save(args.checkpoint_dir, counter, epoch)
 
-    def save(self, checkpoint_dir, step):
+    def save(self, checkpoint_dir, step, epoch):
         model_name = "cyclegan.model"
         model_dir = "%s_%s" % (self.dataset_dir, self.image_size)
-        checkpoint_dir = os.path.join(checkpoint_dir, model_dir)
+        checkpoint_full_dir = os.path.join(checkpoint_dir, model_dir)
 
-        if not os.path.exists(checkpoint_dir):
-            os.makedirs(checkpoint_dir)
+        if not os.path.exists(checkpoint_full_dir):
+            os.makedirs(checkpoint_full_dir)
 
         self.saver.save(self.sess,
-                        os.path.join(checkpoint_dir, model_name),
+                        os.path.join(checkpoint_full_dir, model_name),
                         global_step=step)
+
+        if epoch%1 == 0:
+            backup_dir = os.path.join(checkpoint_dir, model_dir + "-backup",str(epoch))
+            if os.path.isdir(backup_dir):
+                shutil.rmtree(backup_dir)
+            shutil.copytree(checkpoint_full_dir,backup_dir)
+
 
     def load(self, checkpoint_dir):
         print(" [*] Reading checkpoint...")
